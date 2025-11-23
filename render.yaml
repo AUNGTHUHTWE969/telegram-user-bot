@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: telegram-user-bot-web
+    env: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        value: "YOUR_ACTUAL_BOT_TOKEN_HERE"
+
+  - type: worker
+    name: telegram-user-bot-worker
+    env: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        value: "YOUR_ACTUAL_BOT_TOKEN_HERE"
