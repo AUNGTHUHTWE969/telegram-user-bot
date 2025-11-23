@@ -1,14 +1,284 @@
 import os
 import logging
-from telegram.ext import Updater, CommandHandler
-from flask import Flask
-from threading import Thread
+import requests
+import json
 import sqlite3
 from datetime import datetime
+from flask import Flask, request
+from threading import Thread
 import time
 
-# Flask app for keep alive
+# Flask app
 app = Flask(__name__)
+
+# Bot configuration
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+if not BOT_TOKEN:
+    print("❌ ERROR: BOT_TOKEN not found in environment variables")
+    print("✅ Please add BOT_TOKEN to Render environment variables")
+    exit(1)
+
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+print(f"✅ Bot Token: {BOT_TOKEN[:10]}...")
+print("🚀 Starting Myanmar User Info Bot...")
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class TelegramBot:
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.setup_database()
+        self.setup_webhook()
+    
+    def setup_database(self):
+        """Database setup"""
+        try:
+            self.conn = sqlite3.connect('user_info.db', check_same_thread=False)
+            self.cursor = self.conn.cursor()
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    first_name TEXT,
+                    last_name TEXT,
+                    username TEXT,
+                    language_code TEXT,
+                    is_bot INTEGER,
+                    created_at TEXT
+                )
+            ''')
+            self.conn.commit()
+            print("✅ Database setup completed")
+        except Exception as e:
+            print(f"❌ Database error: {e}")
+
+    def setup_webhook(self):
+        """Setup webhook for Telegram"""
+        try:
+            # For polling method, we don't need webhook
+            print("✅ Using polling method (no webhook needed)")
+        except Exception as e:
+            print(f"❌ Webhook setup error: {e}")
+
+    def save_user(self, user_data):
+        """Save user to database"""
+        try:
+            self.cursor.execute('''
+                INSERT OR REPLACE INTO users 
+                (user_id, first_name, last_name, username, language_code, is_bot, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_data.get('id'),
+                user_data.get('first_name'),
+                user_data.get('last_name'),
+                user_data.get('username'),
+                user_data.get('language_code'),
+                1 if user_data.get('is_bot', False) else 0,
+                datetime.now().isoformat()
+            ))
+            self.conn.commit()
+            print(f"✅ User saved: {user_data.get('first_name')}")
+        except Exception as e:
+            print(f"❌ Error saving user: {e}")
+
+    def send_message(self, chat_id, text, parse_mode=None):
+        """Send message to Telegram"""
+        try:
+            url = f"{TELEGRAM_API_URL}/sendMessage"
+            payload = {
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': parse_mode
+            }
+            response = requests.post(url, json=payload)
+            return response.json()
+        except Exception as e:
+            print(f"❌ Error sending message: {e}")
+            return None
+
+    def process_start_command(self, chat_id, user_data):
+        """Process /start command"""
+        self.save_user(user_data)
+        
+        welcome_text = f"""
+🤖 **မြန်မာ User Info Bot** 
+
+**မင်္ဂလာပါ {user_data.get('first_name', 'User')}!** 
+
+ကျွန်တော့် Bot ကို အသုံးပြုတဲ့အတွက် ကျေးဇူးတင်ပါတယ်။ 
+ဒီ Bot ကနေ Telegram User တွေရဲ့ အချက်အလက်တွေကို လွယ်လွယ်ကူကူ ကြည့်ရှုနိုင်ပါတယ်။
+
+**သုံးလို့ရတဲ့ Commands များ:**
+/start - Bot ကိုစတင်အသုံးပြုရန် (ဒီမက်ဆေ့)
+/info - User အချက်အလက်များ ကြည့်ရှုရန်
+/myid - ကိုယ့်ရဲ့ User ID ကြည့်ရှုရန်  
+/chatid - Chat ID ကြည့်ရှုရန်
+/help - အကူအညီရယူရန်
+
+**Server Information:**
+🚀 Hosted on: Render.com
+⏰ Uptime: 24/7 Always Online
+🔧 Status: Active
+📅 Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
+
+ကျေးဇူးပြုပြီး Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေးဇူးအထူးတင်ပါတယ်! 
+        """
+        
+        self.send_message(chat_id, welcome_text, parse_mode='Markdown')
+        print(f"✅ Start command executed for user: {user_data.get('first_name')}")
+
+    def process_help_command(self, chat_id):
+        """Process /help command"""
+        help_text = """
+🆘 **အကူအညီ စင်တာ**
+
+**Commands List:**
+/start - Bot ကိုစတင်အသုံးပြုရန်
+/info - User အချက်အလက်များကြည့်ရှုရန်  
+/myid - ကိုယ့်ရဲ့ User ID ကြည့်ရှုရန်
+/chatid - Chat ID ကြည့်ရှုရန်
+/help - ဒီအကူအညီစာမျက်နှာကြည့်ရှုရန်
+
+**User Info ကြည့်နည်းများ:**
+1. ကိုယ်တိုင် /info ရိုက်ပါ
+2. သူများ message ကို reply လုပ်ပြီး /info ရိုက်ပါ
+
+**Hosting Info:**
+🤖 Bot is hosted on Render.com
+⏰ 24/7 Always Online
+        """
+        self.send_message(chat_id, help_text, parse_mode='Markdown')
+        print("✅ Help command executed")
+
+    def process_info_command(self, chat_id, user_data, message_data):
+        """Process /info command"""
+        try:
+            # Check if this is a reply to another message
+            reply_to_message = message_data.get('reply_to_message')
+            if reply_to_message:
+                user_data = reply_to_message.get('from', user_data)
+            
+            self.save_user(user_data)
+            
+            info_text = f"""
+👤 **User အချက်အလက်**
+
+**အခြေခံ အချက်အလက်:**
+🆔 **User ID:** `{user_data.get('id')}`
+📛 **နာမည်:** {user_data.get('first_name', 'မရှိပါ')}
+📛 **မျိုးရိုးနာမည်:** {user_data.get('last_name', 'မရှိပါ')} 
+👤 **Username:** @{user_data.get('username', 'မရှိပါ')}
+🌐 **ဘာသာစကား:** {user_data.get('language_code', 'မရှိပါ')}
+🤖 **Bot လား:** {"✅ ဟုတ်ပါတယ်" if user_data.get('is_bot', False) else "❌ မဟုတ်ပါ"}
+
+**Chat အချက်အလက်:**
+💬 **Chat ID:** `{chat_id}`
+
+**Server Info:**
+🚀 **Host:** Render.com
+⏰ **Status:** 24/7 Online
+🔧 **Uptime:** {(datetime.now() - self.start_time).days} days
+            """
+            
+            self.send_message(chat_id, info_text, parse_mode='Markdown')
+            print(f"✅ Info command executed for user: {user_data.get('first_name')}")
+            
+        except Exception as e:
+            error_msg = "❌ အချက်အလက်ရယူရာတွင် အမှားတစ်ခုဖြစ်နေပါသည်"
+            self.send_message(chat_id, error_msg)
+            print(f"❌ Info command error: {e}")
+
+    def process_myid_command(self, chat_id, user_data):
+        """Process /myid command"""
+        self.save_user(user_data)
+        self.send_message(chat_id, f"🆔 **မင်းရဲ့ User ID:** `{user_data.get('id')}`", parse_mode='Markdown')
+        print(f"✅ MyID command executed for user: {user_data.get('first_name')}")
+
+    def process_chatid_command(self, chat_id):
+        """Process /chatid command"""
+        self.send_message(chat_id, f"💬 **Chat ID:** `{chat_id}`", parse_mode='Markdown')
+        print(f"✅ ChatID command executed in chat: {chat_id}")
+
+    def get_updates(self, offset=None):
+        """Get new messages from Telegram"""
+        try:
+            url = f"{TELEGRAM_API_URL}/getUpdates"
+            params = {'timeout': 30, 'offset': offset}
+            response = requests.get(url, params=params, timeout=35)
+            return response.json()
+        except Exception as e:
+            print(f"❌ Error getting updates: {e}")
+            return None
+
+    def process_updates(self):
+        """Process incoming messages"""
+        print("🔄 Checking for new messages...")
+        last_update_id = None
+        
+        while True:
+            try:
+                updates = self.get_updates(last_update_id)
+                
+                if updates and updates.get('ok'):
+                    for update in updates.get('result', []):
+                        last_update_id = update['update_id'] + 1
+                        
+                        message = update.get('message') or update.get('edited_message')
+                        if message:
+                            self.handle_message(message)
+                
+                time.sleep(1)
+                
+            except Exception as e:
+                print(f"❌ Error in process_updates: {e}")
+                time.sleep(5)
+
+    def handle_message(self, message):
+        """Handle incoming message"""
+        try:
+            chat_id = message['chat']['id']
+            text = message.get('text', '').strip()
+            user_data = message.get('from', {})
+            
+            print(f"📨 Received message: {text} from {user_data.get('first_name')}")
+            
+            if text.startswith('/start'):
+                self.process_start_command(chat_id, user_data)
+            elif text.startswith('/help'):
+                self.process_help_command(chat_id)
+            elif text.startswith('/info'):
+                self.process_info_command(chat_id, user_data, message)
+            elif text.startswith('/myid'):
+                self.process_myid_command(chat_id, user_data)
+            elif text.startswith('/chatid'):
+                self.process_chatid_command(chat_id)
+            else:
+                # Send help for unknown commands
+                if text.startswith('/'):
+                    self.send_message(chat_id, "❌ Unknown command. Use /help to see available commands.")
+                    
+        except Exception as e:
+            print(f"❌ Error handling message: {e}")
+
+    def run_bot(self):
+        """Run the bot"""
+        print("🤖 ====================================")
+        print("🚀 Myanmar User Info Bot Starting...")
+        print("📡 Host: Render.com")
+        print("⏰ Uptime: 24/7 Always Online")
+        print("🔧 Version: 4.0 - NO EXTERNAL LIBRARIES")
+        print("✅ Start Command: READY")
+        print("✅ Bot Token: LOADED")
+        print("✅ Database: INITIALIZED")
+        print("🤖 ====================================")
+        print("📍 Web Server: http://0.0.0.0:8080")
+        print("⏰ Start Time:", self.start_time.strftime("%Y-%m-%d %H:%M:%S"))
+        print("🤖 ====================================")
+        
+        # Start processing updates
+        self.process_updates()
 
 @app.route('/')
 def home():
@@ -48,58 +318,23 @@ def home():
             text-align: center;
             font-size: 18px;
         }
-        .info-box {
-            background: #f8f9fa;
-            padding: 20px;
-            margin: 15px 0;
-            border-radius: 8px;
-            border-left: 4px solid #3498db;
-        }
-        .command-list {
-            background: #e8f4fd;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🤖 Telegram User Info Bot</h1>
-        
         <div class="status">
             <strong>Bot is running successfully on Render!</strong>
         </div>
-
-        <div class="info-box">
-            <h3>🚀 Start Command Ready</h3>
-            <p>Telegram bot is now running 24/7 on Render.com</p>
-            <p>Use <strong>/start</strong> command in Telegram to begin</p>
-        </div>
-
-        <div class="info-box">
-            <h3>📋 Available Commands</h3>
-            <div class="command-list">
-                <p><strong>/start</strong> - Start the bot</p>
-                <p><strong>/info</strong> - Get user information</p>
-                <p><strong>/myid</strong> - Get your user ID</p>
-                <p><strong>/chatid</strong> - Get chat ID</p>
-                <p><strong>/help</strong> - Get help</p>
-            </div>
-        </div>
-
-        <div class="info-box">
-            <h3>🔧 Technical Information</h3>
-            <p><strong>Host:</strong> Render.com</p>
-            <p><strong>Python Version:</strong> 3.11</p>
-            <p><strong>Uptime:</strong> 24/7 Always Online</p>
-            <p><strong>Start Time:</strong> %s</p>
-            <p><strong>Status:</strong> <span style="color: #27ae60;">● Running</span></p>
-        </div>
+        <p><strong>Status:</strong> 🟢 Online and Ready</p>
+        <p><strong>Host:</strong> Render.com</p>
+        <p><strong>Uptime:</strong> 24/7 Always Online</p>
+        <p><strong>Start Time:</strong> """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
+        <p><strong>Technology:</strong> Pure Python + Telegram Bot API</p>
     </div>
 </body>
 </html>
-""" % datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+"""
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
@@ -109,243 +344,20 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# Setup logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
-print("🔧 Initializing Telegram Bot...")
-
-class TelegramBot:
-    def __init__(self):
-        self.start_time = datetime.now()
-        print("✅ Bot class initialized")
-        self.setup_database()
-    
-    def setup_database(self):
-        """Database setup"""
-        try:
-            self.conn = sqlite3.connect('user_info.db', check_same_thread=False)
-            self.cursor = self.conn.cursor()
-            self.cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    first_name TEXT,
-                    last_name TEXT,
-                    username TEXT,
-                    language_code TEXT,
-                    is_bot INTEGER,
-                    created_at TEXT
-                )
-            ''')
-            self.conn.commit()
-            print("✅ Database setup completed")
-        except Exception as e:
-            print(f"❌ Database setup error: {e}")
-
-    def save_user(self, user):
-        """Save user to database"""
-        try:
-            self.cursor.execute('''
-                INSERT OR REPLACE INTO users 
-                (user_id, first_name, last_name, username, language_code, is_bot, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                user.id,
-                user.first_name,
-                user.last_name,
-                user.username,
-                getattr(user, 'language_code', None),
-                1 if user.is_bot else 0,
-                datetime.now().isoformat()
-            ))
-            self.conn.commit()
-            print(f"✅ User saved: {user.first_name} (ID: {user.id})")
-        except Exception as e:
-            print(f"❌ Error saving user: {e}")
-
-    def start_command(self, update, context):
-        """START COMMAND - ဒါက အဓိက command"""
-        user = update.message.from_user
-        self.save_user(user)
-        
-        welcome_text = f"""
-🤖 **မြန်မာ User Info Bot** 
-
-**မင်္ဂလာပါ {user.first_name or 'User'}!** 
-
-ကျွန်တော့် Bot ကို အသုံးပြုတဲ့အတွက် ကျေးဇူးတင်ပါတယ်။ 
-ဒီ Bot ကနေ Telegram User တွေရဲ့ အချက်အလက်တွေကို လွယ်လွယ်ကူကူ ကြည့်ရှုနိုင်ပါတယ်။
-
-**သုံးလို့ရတဲ့ Commands များ:**
-/start - Bot ကိုစတင်အသုံးပြုရန် (ဒီမက်ဆေ့)
-/info - User အချက်အလက်များ ကြည့်ရှုရန်
-/myid - ကိုယ့်ရဲ့ User ID ကြည့်ရှုရန်  
-/chatid - Chat ID ကြည့်ရှုရန်
-/help - အကူအညီရယူရန်
-
-**အသုံးပြုနည်းများ:**
-• ကိုယ့်အချက်အလက် ကြည့်ချင်ရင် /info ရိုက်ပါ
-• သူများအချက်အလက် ကြည့်ချင်ရင် သူတို့ message ကို reply လုပ်ပြီး /info ရိုက်ပါ
-• Group ထဲမှာ /chatid ရိုက်ပြီး Group ID ကြည့်လို့ရတယ်
-
-**Server Information:**
-🚀 Hosted on: Render.com
-⏰ Uptime: 24/7 Always Online
-🔧 Status: Active
-📅 Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
-
-ကျေးဇူးပြုပြီး Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေးဇူးအထူးတင်ပါတယ်! 
-        """
-        
-        update.message.reply_text(welcome_text, parse_mode='Markdown')
-        print(f"✅ Start command executed for user: {user.first_name} (ID: {user.id})")
-
-    def help_command(self, update, context):
-        """Help command"""
-        help_text = """
-🆘 **အကူအညီ စင်တာ**
-
-**Commands List:**
-/start - Bot ကိုစတင်အသုံးပြုရန်
-/info - User အချက်အလက်များကြည့်ရှုရန်  
-/myid - ကိုယ့်ရဲ့ User ID ကြည့်ရှုရန်
-/chatid - Chat ID ကြည့်ရှုရန်
-/help - ဒီအကူအညီစာမျက်နှာကြည့်ရှုရန်
-
-**User Info ကြည့်နည်းများ:**
-1. ကိုယ်တိုင် /info ရိုက်ပါ
-2. သူများ message ကို reply လုပ်ပြီး /info ရိုက်ပါ
-
-**Support:**
-ပြဿနာတစ်စုံတစ်ရာရှိပါက Bot Developer ဆီဆက်သွယ်ပါ။
-
-**Hosting Info:**
-🤖 Bot is hosted on Render.com
-⏰ 24/7 Always Online
-        """
-        update.message.reply_text(help_text, parse_mode='Markdown')
-        print("✅ Help command executed")
-
-    def info_command(self, update, context):
-        """Info command"""
-        try:
-            if update.message.reply_to_message:
-                user = update.message.reply_to_message.from_user
-            else:
-                user = update.message.from_user
-            
-            self.save_user(user)
-            
-            info_text = f"""
-👤 **User အချက်အလက်**
-
-**အခြေခံ အချက်အလက်:**
-🆔 **User ID:** `{user.id}`
-📛 **နာမည်:** {user.first_name or "မရှိပါ"}
-📛 **မျိုးရိုးနာမည်:** {user.last_name or "မရှိပါ"} 
-👤 **Username:** @{user.username or "မရှိပါ"}
-🌐 **ဘာသာစကား:** {getattr(user, 'language_code', 'မရှိပါ')}
-🤖 **Bot လား:** {"✅ ဟုတ်ပါတယ်" if user.is_bot else "❌ မဟုတ်ပါ"}
-
-**Chat အချက်အလက်:**
-💬 **Chat ID:** `{update.message.chat.id}`
-🏷️ **Chat Type:** {update.message.chat.type}
-
-**Server Info:**
-🚀 **Host:** Render.com
-⏰ **Status:** 24/7 Online
-🔧 **Uptime:** {(datetime.now() - self.start_time).days} days
-            """
-            
-            update.message.reply_text(info_text, parse_mode='Markdown')
-            print(f"✅ Info command executed for user: {user.first_name}")
-            
-        except Exception as e:
-            error_msg = "❌ အချက်အလက်ရယူရာတွင် အမှားတစ်ခုဖြစ်နေပါသည်"
-            update.message.reply_text(error_msg)
-            print(f"❌ Info command error: {e}")
-
-    def myid_command(self, update, context):
-        """MyID command"""
-        user = update.message.from_user
-        self.save_user(user)
-        update.message.reply_text(f"🆔 **မင်းရဲ့ User ID:** `{user.id}`", parse_mode='Markdown')
-        print(f"✅ MyID command executed for user: {user.first_name}")
-
-    def chatid_command(self, update, context):
-        """ChatID command"""
-        chat = update.message.chat
-        update.message.reply_text(
-            f"💬 **Chat ID:** `{chat.id}`\n"
-            f"🏷️ **Chat Type:** {chat.type}", 
-            parse_mode='Markdown'
-        )
-        print(f"✅ ChatID command executed in chat: {chat.id}")
-
-    def run_bot(self):
-        """Run the bot"""
-        print("🤖 Starting Telegram Bot...")
-        
-        # Start keep-alive server
-        keep_alive()
-        print("✅ Flask keep-alive server started")
-        
-        # Get bot token from environment variable
-        BOT_TOKEN = os.environ.get('BOT_TOKEN')
-        
-        if not BOT_TOKEN:
-            print("❌ ERROR: BOT_TOKEN environment variable မတွေ့ပါ")
-            print("✅ Render dashboard မှာ Environment Variables ထည့်ပါ")
-            print("✅ Key: BOT_TOKEN")
-            print("✅ Value: your_actual_bot_token")
-            return
-        
-        print(f"✅ Bot Token loaded: {BOT_TOKEN[:10]}...")
-        
-        try:
-            # Create updater
-            updater = Updater(token=BOT_TOKEN, use_context=True)
-            dispatcher = updater.dispatcher
-            
-            # Add command handlers
-            dispatcher.add_handler(CommandHandler("start", self.start_command))
-            dispatcher.add_handler(CommandHandler("help", self.help_command))
-            dispatcher.add_handler(CommandHandler("info", self.info_command))
-            dispatcher.add_handler(CommandHandler("myid", self.myid_command))
-            dispatcher.add_handler(CommandHandler("chatid", self.chatid_command))
-            
-            # Start the bot
-            print("🤖 ====================================")
-            print("🚀 Myanmar User Info Bot Starting...")
-            print("📡 Host: Render.com")
-            print("⏰ Uptime: 24/7 Always Online")
-            print("🔧 Version: 3.0 - FINAL FIX")
-            print("✅ Start Command: READY")
-            print("✅ Bot Token: LOADED")
-            print("✅ Database: INITIALIZED")
-            print("✅ Flask Server: RUNNING")
-            print("🤖 ====================================")
-            print("📍 Web Server: http://0.0.0.0:8080")
-            print("⏰ Start Time:", self.start_time.strftime("%Y-%m-%d %H:%M:%S"))
-            print("🤖 ====================================")
-            
-            updater.start_polling()
-            print("✅ Bot started polling successfully!")
-            print("🤖 Bot is now running and ready to receive commands!")
-            
-            # Keep the bot running
-            updater.idle()
-            
-        except Exception as e:
-            print(f"❌ Bot startup error: {e}")
-            print("🔄 Restarting in 10 seconds...")
-            time.sleep(10)
-            self.run_bot()  # Restart
-
 # Run the bot
 if __name__ == '__main__':
-    print("🔧 Script started...")
-    bot = TelegramBot()
-    bot.run_bot()
+    print("🔧 Starting bot...")
+    keep_alive()
+    time.sleep(2)  # Wait for Flask to start
+    
+    try:
+        bot = TelegramBot()
+        bot.run_bot()
+    except Exception as e:
+        print(f"❌ Bot startup failed: {e}")
+        print("🔄 Restarting in 10 seconds...")
+        time.sleep(10)
+        
+        # Restart
+        bot = TelegramBot()
+        bot.run_bot()
