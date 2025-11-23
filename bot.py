@@ -1,7 +1,6 @@
 import os
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler
 from flask import Flask
 from threading import Thread
 import sqlite3
@@ -13,7 +12,33 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Telegram User Info Bot is running on Render - Fixed Version!"
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Telegram User Info Bot</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f0f2f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; text-align: center; }
+        .status { background: #27ae60; color: white; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Telegram User Info Bot</h1>
+        <div class="status">
+            <strong>Bot is running successfully on Render!</strong>
+        </div>
+        <p><strong>Status:</strong> 🟢 Online</p>
+        <p><strong>Host:</strong> Render.com</p>
+        <p><strong>Uptime:</strong> 24/7</p>
+        <p><strong>Start Time:</strong> %s</p>
+    </div>
+</body>
+</html>
+""" % datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
@@ -28,7 +53,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
 class TelegramBot:
     def __init__(self):
@@ -70,13 +94,13 @@ class TelegramBot:
                 datetime.now().isoformat()
             ))
             self.conn.commit()
-            print(f"✅ User saved: {user.first_name} (ID: {user.id})")
+            print(f"✅ User saved: {user.first_name}")
         except Exception as e:
             print(f"❌ Error saving user: {e}")
 
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def start(self, update, context):
         """START COMMAND"""
-        user = update.effective_user
+        user = update.message.from_user
         self.save_user(user)
         
         welcome_text = f"""
@@ -101,10 +125,10 @@ class TelegramBot:
 Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေးဇူးတင်ပါတယ်!
         """
         
-        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+        update.message.reply_text(welcome_text, parse_mode='Markdown')
         print(f"✅ Start command executed for user: {user.first_name}")
 
-    async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def help(self, update, context):
         """Help command"""
         help_text = """
 🆘 **အကူအညီ စင်တာ**
@@ -124,15 +148,15 @@ Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေ
 🤖 Bot is hosted on Render.com
 ⏰ 24/7 Always Online
         """
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        update.message.reply_text(help_text, parse_mode='Markdown')
 
-    async def info(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def info(self, update, context):
         """Info command"""
         try:
             if update.message.reply_to_message:
                 user = update.message.reply_to_message.from_user
             else:
-                user = update.effective_user
+                user = update.message.from_user
             
             self.save_user(user)
             
@@ -148,31 +172,31 @@ Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေ
 🤖 **Bot လား:** {"✅ ဟုတ်ပါတယ်" if user.is_bot else "❌ မဟုတ်ပါ"}
 
 **Chat အချက်အလက်:**
-💬 **Chat ID:** `{update.effective_chat.id}`
-🏷️ **Chat Type:** {update.effective_chat.type}
+💬 **Chat ID:** `{update.message.chat.id}`
+🏷️ **Chat Type:** {update.message.chat.type}
 
 **Server Info:**
 🚀 **Host:** Render.com
 ⏰ **Status:** 24/7 Online
             """
             
-            await update.message.reply_text(info_text, parse_mode='Markdown')
+            update.message.reply_text(info_text, parse_mode='Markdown')
             
         except Exception as e:
             error_msg = "❌ အချက်အလက်ရယူရာတွင် အမှားတစ်ခုဖြစ်နေပါသည်"
-            await update.message.reply_text(error_msg)
-            logger.error(f"Info command error: {e}")
+            update.message.reply_text(error_msg)
+            print(f"Error in info command: {e}")
 
-    async def myid(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def myid(self, update, context):
         """MyID command"""
-        user = update.effective_user
+        user = update.message.from_user
         self.save_user(user)
-        await update.message.reply_text(f"🆔 **မင်းရဲ့ User ID:** `{user.id}`", parse_mode='Markdown')
+        update.message.reply_text(f"🆔 **မင်းရဲ့ User ID:** `{user.id}`", parse_mode='Markdown')
 
-    async def chatid(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def chatid(self, update, context):
         """ChatID command"""
-        chat = update.effective_chat
-        await update.message.reply_text(
+        chat = update.message.chat
+        update.message.reply_text(
             f"💬 **Chat ID:** `{chat.id}`\n"
             f"🏷️ **Chat Type:** {chat.type}", 
             parse_mode='Markdown'
@@ -187,28 +211,27 @@ Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေ
         BOT_TOKEN = os.environ.get('BOT_TOKEN')
         
         if not BOT_TOKEN:
-            logger.error("❌ BOT_TOKEN environment variable မတွေ့ပါ")
             print("❌ ERROR: BOT_TOKEN environment variable မတွေ့ပါ")
             print("✅ Render dashboard မှာ Environment Variables ထည့်ပါ")
             return
         
-        # Create application
-        application = Application.builder().token(BOT_TOKEN).build()
+        # Create updater with older style (compatible with python-telegram-bot 20.7)
+        updater = Updater(token=BOT_TOKEN, use_context=True)
+        dispatcher = updater.dispatcher
         
         # Add command handlers
-        application.add_handler(CommandHandler("start", self.start))
-        application.add_handler(CommandHandler("help", self.help))
-        application.add_handler(CommandHandler("info", self.info))
-        application.add_handler(CommandHandler("myid", self.myid))
-        application.add_handler(CommandHandler("chatid", self.chatid))
+        dispatcher.add_handler(CommandHandler("start", self.start))
+        dispatcher.add_handler(CommandHandler("help", self.help))
+        dispatcher.add_handler(CommandHandler("info", self.info))
+        dispatcher.add_handler(CommandHandler("myid", self.myid))
+        dispatcher.add_handler(CommandHandler("chatid", self.chatid))
         
         # Start the bot
-        logger.info("🚀 Bot is starting on Render...")
         print("🤖 ====================================")
         print("🚀 Myanmar User Info Bot Starting...")
         print("📡 Host: Render.com")
         print("⏰ Uptime: 24/7 Always Online")
-        print("🔧 Version: 2.0.0 - IMGHDR FIXED")
+        print("🔧 Version: FINAL FIX")
         print("✅ Start Command: READY")
         print("✅ Bot Token: LOADED")
         print("✅ Database: INITIALIZED")
@@ -218,9 +241,10 @@ Bot ကိုအသုံးပြုပေးတဲ့အတွက် ကျေ
         print("🤖 ====================================")
         
         try:
-            application.run_polling()
+            updater.start_polling()
+            print("✅ Bot started polling successfully!")
+            updater.idle()
         except Exception as e:
-            logger.error(f"Bot error: {e}")
             print(f"❌ Bot stopped: {e}")
             print("🔄 Restarting in 10 seconds...")
             time.sleep(10)
