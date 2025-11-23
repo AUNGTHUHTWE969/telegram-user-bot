@@ -8,7 +8,7 @@ services:
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        value: "YOUR_ACTUAL_BOT_TOKEN_HERE"
+        value: "8512570431:AAHlgByHUD_VNkUrSM4uZIIFTvJLk5r8jDg"
 
   - type: worker
     name: telegram-user-bot-worker
@@ -19,4 +19,4 @@ services:
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        value: "YOUR_ACTUAL_BOT_TOKEN_HERE"
+        value: "8512570431:AAHlgByHUD_VNkUrSM4uZIIFTvJLk5r8jDg"
