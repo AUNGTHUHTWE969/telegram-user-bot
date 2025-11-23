@@ -1,22 +1,11 @@
 services:
   - type: web
-    name: telegram-user-bot-web
+    name: telegram-user-bot
     env: python
     plan: free
     branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
-      - key: BOT_TOKEN
-        value: "8512570431:AAHlgByHUD_VNkUrSM4uZIIFTvJLk5r8jDg"
-
-  - type: worker
-    name: telegram-user-bot-worker
-    env: python
-    plan: free
-    branch: main
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    envVars:
-      - key: BOT_TOKEN
+      - key: BOT_TOKEN  # ဒီမှာ BOT_TOKEN လို့ပဲ ရေးပါ
         value: "8512570431:AAHlgByHUD_VNkUrSM4uZIIFTvJLk5r8jDg"
